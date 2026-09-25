@@ -1,0 +1,19 @@
+{
+  "name": "homebridge-switchbot-ir-matter",
+  "displayName": "SwitchBot IR Buttons for Matter",
+  "version": "0.1.0",
+  "description": "Publish customized buttons of SwitchBot virtual IR remotes as Matter on/off outlets (one press per turn-on), via the SwitchBot OpenAPI.",
+  "type": "module",
+  "main": "index.js",
+  "license": "MIT",
+  "author": "simukappu",
+  "engines": {
+    "node": "^22 || ^24",
+    "homebridge": "^2.0.0"
+  },
+  "keywords": ["homebridge-plugin", "switchbot", "infrared", "matter", "alexa"],
+  "files": ["index.js", "src", "config.schema.json", "README.md", "LICENSE"],
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  }
+}

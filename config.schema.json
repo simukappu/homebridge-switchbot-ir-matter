@@ -1,0 +1,37 @@
+{
+  "pluginAlias": "SwitchBotIRMatter",
+  "pluginType": "platform",
+  "singular": true,
+  "headerDisplay": "Publishes customized buttons of SwitchBot virtual IR remotes as Matter on/off outlets. Turning one on sends the button once; it falls back to off after a moment. Requires Matter on this plugin's child bridge.",
+  "schema": {
+    "type": "object",
+    "properties": {
+      "name": { "title": "Name", "type": "string", "default": "SwitchBot IR" },
+      "credentialsFile": {
+        "title": "Credentials File",
+        "type": "string",
+        "placeholder": "~/.config/switchbot-ir/credentials.json",
+        "description": "JSON file with the SwitchBot OpenAPI \"token\" and \"secret\". Must be readable by the owner only (chmod 600). Kept out of config.json on purpose."
+      },
+      "resetMs": {
+        "title": "Reset to Off After (ms)",
+        "type": "integer",
+        "default": 1000,
+        "minimum": 200
+      },
+      "buttons": {
+        "title": "Buttons",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": ["deviceId", "button", "name"],
+          "properties": {
+            "deviceId": { "title": "IR Remote deviceId", "type": "string", "description": "From infraredRemoteList (GET /v1.1/devices)." },
+            "button": { "title": "Button Name", "type": "string", "description": "Exactly as registered in the SwitchBot app." },
+            "name": { "title": "Matter Name", "type": "string", "maxLength": 32, "description": "Name shown in the controller (max 32 bytes)." }
+          }
+        }
+      }
+    }
+  }
+}
