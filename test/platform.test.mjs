@@ -159,6 +159,19 @@ test('offline hub: command fails, state stays off, marked unreachable until a su
   } finally { t.stop(); }
 });
 
+test('a failure right after a success does not leave "on" showing', async () => {
+  const f = fakeFetch();
+  const t = await launch({ fetch: f });
+  try {
+    await t.api.matter.command(t.uuidOf('Down'), 'on');
+    assert.equal(t.state('Down').onOff.onOff, true);
+    f.statusCode = 171; // next press fails within resetMs
+    await assert.rejects(t.api.matter.command(t.uuidOf('Down'), 'on'), /statusCode 171/);
+    await settle(300);
+    assert.equal(t.state('Down').onOff.onOff, false);
+  } finally { t.stop(); }
+});
+
 test('other API errors fail the command without marking unreachable', async () => {
   const t = await launch({ fetch: fakeFetch({ statusCode: 190 }) });
   try {

@@ -117,7 +117,6 @@ export class SwitchBotIRMatterPlatform {
       throw new this.api.matter.status.Busy(`"${b.name}" is already being sent`);
     }
     b.busy = true;
-    clearTimeout(b.resetTimer);
     const started = Date.now();
     try {
       await this.client.pressButton(b.deviceId, b.button);
@@ -129,9 +128,11 @@ export class SwitchBotIRMatterPlatform {
       throw e;
     } finally {
       b.busy = false;
+      // Always (re)arm the fall-back to off: after a success Matter commits on,
+      // and a failure must not leave an earlier success's "on" showing.
+      clearTimeout(b.resetTimer);
+      b.resetTimer = setTimeout(() => this.setOnOff(uuid, false), this.resetMs);
     }
-    // Matter commits onOff=true after this handler returns; fall back to off.
-    b.resetTimer = setTimeout(() => this.setOnOff(uuid, false), this.resetMs);
   }
 
   setOnOff(uuid, onOff) {
