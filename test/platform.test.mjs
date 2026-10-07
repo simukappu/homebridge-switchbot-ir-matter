@@ -11,7 +11,7 @@ import path from 'node:path';
 import { EventEmitter } from 'node:events';
 
 import { SwitchBotIRMatterPlatform } from '../src/platform.js';
-import { SwitchBotApi, loadCredentials } from '../src/switchbot-api.js';
+import { API_BASE, SwitchBotApi, loadCredentials } from '../src/switchbot-api.js';
 
 const CRED = { token: 'test-token-DO-NOT-LOG', secret: 'test-secret-DO-NOT-LOG' };
 const SCREEN = '02-000000000000-00000001';
@@ -69,7 +69,18 @@ function makeLog() {
 
 const settle = (ms = 20) => new Promise((r) => setTimeout(r, ms));
 
-async function launch({ config = {}, fetch = fakeFetch(), matterEnabled = true, cached = [], apiFactory } = {}) {
+// A credentials file in a fresh temp dir, readable by the owner only.
+function writeCredentials(text) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sbir-'));
+  const file = path.join(dir, 'c.json');
+  fs.writeFileSync(file, text, { mode: 0o600 });
+  fs.chmodSync(file, 0o600);
+  return { file, cleanup: () => fs.rmSync(dir, { recursive: true }) };
+}
+
+// platformFactory: use the platform's own apiFactory (real loadCredentials and
+// global fetch). Startup sends no request, so nothing goes over the network.
+async function launch({ config = {}, fetch = fakeFetch(), matterEnabled = true, cached = [], apiFactory, platformFactory = false } = {}) {
   const api = new EventEmitter();
   api.hap = { uuid: { generate: (s) => {
     const h = crypto.createHash('sha1').update(s).digest('hex');
@@ -79,7 +90,7 @@ async function launch({ config = {}, fetch = fakeFetch(), matterEnabled = true, 
   api.matter = matterEnabled ? fakeMatter() : undefined;
   const log = makeLog();
   const platform = new SwitchBotIRMatterPlatform(log, { buttons: BUTTONS, resetMs: 200, ...config }, api,
-    { apiFactory: apiFactory ?? (() => new SwitchBotApi(CRED, { fetchImpl: fetch })) });
+    platformFactory ? {} : { apiFactory: apiFactory ?? (() => new SwitchBotApi(CRED, { fetchImpl: fetch })) });
   for (const c of cached) platform.configureMatterAccessory(c);
   api.emit('didFinishLaunching');
   await settle();
@@ -245,4 +256,87 @@ test('loadCredentials refuses files readable by group/others', () => {
   fs.chmodSync(f, 0o600);
   assert.deepEqual(loadCredentials(f), CRED);
   fs.rmSync(dir, { recursive: true });
+});
+
+test('loadCredentials refuses malformed JSON or a non-object without echoing the file', () => {
+  const token = 'FAKEtoken0123456789abcdefXYZ';
+  // Unquoted token: Node's SyntaxError message would quote the start of it.
+  const cred = writeCredentials(`{"token": ${token}, "secret": "fake-secret"}`);
+  try {
+    assert.throws(() => loadCredentials(cred.file), (e) => {
+      assert.equal(e.message, `${cred.file}: not valid JSON (expected {"token":"...","secret":"..."})`);
+      assert.equal(e.cause, undefined);
+      for (let i = 0; i + 6 <= token.length; i++) {
+        assert.ok(!e.message.includes(token.slice(i, i + 6)), `message contains "${token.slice(i, i + 6)}"`);
+      }
+      return true;
+    });
+    for (const text of ['null', '"a string"', '42', '[]']) {
+      fs.writeFileSync(cred.file, text);
+      assert.throws(() => loadCredentials(cred.file), /expected a JSON object/, text);
+    }
+  } finally { cred.cleanup(); }
+});
+
+test('SwitchBotApi accepts https, or http only to a loopback host', async () => {
+  assert.equal(new SwitchBotApi(CRED).base, API_BASE);
+  for (const base of ['https://api.switch-bot.com', 'https://example.com:8443/prefix',
+    'http://127.0.0.1:8080', 'http://localhost:3000', 'http://LOCALHOST', 'http://[::1]:8080']) {
+    assert.doesNotThrow(() => new SwitchBotApi(CRED, { base }), base);
+  }
+  // Requests go to the accepted base and never follow a redirect.
+  const f = fakeFetch();
+  await new SwitchBotApi(CRED, { base: 'http://127.0.0.1:8080', fetchImpl: f }).pressButton(SCREEN, 'Down');
+  assert.equal(f.calls[0].url, `http://127.0.0.1:8080/v1.1/devices/${SCREEN}/commands`);
+  assert.equal(f.calls[0].init.redirect, 'error');
+});
+
+test('SwitchBotApi refuses any other base, naming only protocol and host', () => {
+  const rejected = {
+    'http://api.switch-bot.com': 'http://api.switch-bot.com',
+    'http://192.168.1.10:8080': 'http://192.168.1.10:8080',
+    'http://localhost.evil.example': 'http://localhost.evil.example',
+    'http://127.0.0.1.evil.example': 'http://127.0.0.1.evil.example',
+    'ftp://example.com': 'ftp://example.com',
+    'http://user:SECRET@evil.example:8080/SECRET?q=SECRET#SECRET': 'http://evil.example:8080',
+  };
+  for (const [base, shown] of Object.entries(rejected)) {
+    assert.throws(() => new SwitchBotApi(CRED, { base }), (e) => {
+      assert.ok(e.message.includes(`refusing SwitchBot API base ${shown}:`), e.message);
+      assert.ok(!e.message.includes('SECRET'), e.message);
+      return true;
+    }, base);
+  }
+  assert.throws(() => new SwitchBotApi(CRED, { base: 'not a url SECRET' }),
+    (e) => /not a URL/.test(e.message) && !e.message.includes('SECRET'));
+});
+
+test('platform ignores an unsafe apiBase with a warning and uses a loopback one', async () => {
+  const cred = writeCredentials(JSON.stringify(CRED));
+  try {
+    const bad = await launch({ platformFactory: true,
+      config: { credentialsFile: cred.file, apiBase: 'http://evil.example:8080/SECRET?q=SECRET' } });
+    bad.stop();
+    assert.equal(bad.platform.client.base, API_BASE);
+    const warned = bad.log.lines.filter(([l, m]) => l === 'warn' && m.includes('Ignoring apiBase'));
+    assert.equal(warned.length, 1);
+    assert.ok(warned[0][1].includes('http://evil.example:8080') && !warned[0][1].includes('SECRET'), warned[0][1]);
+    assert.equal(bad.api.matter.registered.size, 3, 'buttons are still published');
+
+    const good = await launch({ platformFactory: true, config: { credentialsFile: cred.file, apiBase: 'http://127.0.0.1:8080' } });
+    good.stop();
+    assert.equal(good.platform.client.base, 'http://127.0.0.1:8080');
+    assert.ok(!good.log.lines.some(([l]) => l === 'warn'));
+  } finally { cred.cleanup(); }
+});
+
+test('pressButton refuses a deviceId that could change the request path, before sending', async () => {
+  const f = fakeFetch();
+  const client = new SwitchBotApi(CRED, { fetchImpl: f });
+  for (const id of ['', '../../v1.1/scenes', 'a/b', 'a b', 'a?x=1', '%2e%2e', 'abc\n', undefined]) {
+    await assert.rejects(client.pressButton(id, 'Down'), /invalid deviceId/, JSON.stringify(id));
+  }
+  assert.equal(f.calls.length, 0);
+  await client.pressButton(SCREEN, 'Down');
+  assert.equal(f.calls.length, 1);
 });

@@ -4,6 +4,12 @@ Publishes customized buttons of SwitchBot virtual IR remotes ("Others" / DIY) as
 
 Each configured button becomes one outlet. Turning it **on sends that button once** through the SwitchBot OpenAPI (`POST /v1.1/devices/{deviceId}/commands`, `commandType: "customize"`); after the cloud accepts it, the outlet falls back to **off** by itself.
 
+## Scope and support
+
+- This is a reference implementation built for one setup. It is shared as is, with no support; issues and pull requests may go unanswered.
+- It is not affiliated with SwitchBot. Use it only with your own SwitchBot account and devices.
+- Infrared gives no feedback: neither the plugin nor the controller can tell whether the device acted. Do not use it for safety- or security-relevant devices.
+
 ## Why not the official plugin?
 
 As of `@switchbot/homebridge-switchbot` 5.0.3, IR "Others" remotes fall back to a generic device that sends `commandType: "command"` and derives its Matter clusters from device status, which virtual IR remotes do not have. The 4.x `customOn`/`customOff` options were HAP-only and limited to two buttons.
@@ -33,6 +39,8 @@ As of `@switchbot/homebridge-switchbot` 5.0.3, IR "Others" remotes fall back to 
    node tools/switchbot-probe.mjs send --device <deviceId> --button "<name>" --observe
    ```
 
+   The `list` output contains your device IDs and device names (often room names), so redact it before sharing.
+
 3. Configure the platform on its own child bridge with Matter enabled:
 
    ```json
@@ -44,7 +52,7 @@ As of `@switchbot/homebridge-switchbot` 5.0.3, IR "Others" remotes fall back to 
        { "deviceId": "02-XXXXXXXXXXXX-XXXXXXXX", "button": "Up",   "name": "Screen Up" },
        { "deviceId": "02-XXXXXXXXXXXX-XXXXXXXX", "button": "Stop", "name": "Screen Stop" }
      ],
-     "_bridge": { "username": "…", "port": 51234, "matter": { "port": 5531 } }
+     "_bridge": { "username": "…", "port": 51234, "matter": { "port": 5540 } }
    }
    ```
 

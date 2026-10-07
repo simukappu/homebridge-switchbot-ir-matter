@@ -3,7 +3,7 @@
 // SwitchBot OpenAPI; after success it falls back to off by itself, so the
 // on/off state never pretends to be the device's position or power.
 
-import { DEFAULT_CREDENTIALS_PATH, SwitchBotApi, loadCredentials } from './switchbot-api.js';
+import { API_BASE, DEFAULT_CREDENTIALS_PATH, SwitchBotApi, loadCredentials } from './switchbot-api.js';
 
 export const PLUGIN_NAME = 'homebridge-switchbot-ir-matter';
 export const PLATFORM_NAME = 'SwitchBotIRMatter';
@@ -20,10 +20,19 @@ export class SwitchBotIRMatterPlatform {
     this.cached = new Map();
     this.buttons = new Map(); // uuid -> { deviceId, button, name, busy, resetTimer }
     this.resetMs = Number.isFinite(this.config.resetMs) ? Math.max(200, this.config.resetMs) : DEFAULT_RESET_MS;
-    this.apiFactory = apiFactory
-      || (() => new SwitchBotApi(loadCredentials(this.config.credentialsFile || DEFAULT_CREDENTIALS_PATH),
-        // apiBase is for testing against a local fake API; not in the schema.
-        this.config.apiBase ? { base: String(this.config.apiBase) } : {}));
+    this.apiFactory = apiFactory || (() => {
+      const credentials = loadCredentials(this.config.credentialsFile || DEFAULT_CREDENTIALS_PATH);
+      // apiBase is for testing against a local fake API; not in the schema.
+      // SwitchBotApi refuses an unsafe base; fall back to the default then.
+      if (this.config.apiBase) {
+        try {
+          return new SwitchBotApi(credentials, { base: String(this.config.apiBase) });
+        } catch (e) {
+          this.log.warn(`Ignoring apiBase (${e.message}); using ${API_BASE}.`);
+        }
+      }
+      return new SwitchBotApi(credentials);
+    });
 
     api.on('didFinishLaunching', () => {
       this.start().catch((e) => this.log.error(`startup failed: ${e.message}`));
